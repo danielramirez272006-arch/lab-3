@@ -5,25 +5,39 @@ Base de datos PostgreSQL (14 tablas) y un agente de IA en n8n que responde en le
 ```
 lab3/
 ├── sql/
-│   ├── 01_schema.sql          # 14 tablas + restricciones + índices
-│   ├── 02_seed_data.sql       # Datos de prueba coherentes
-│   └── 03_readonly_role.sql   # Rol agente_n8n_readonly (solo SELECT)
-└── n8n/
-    ├── system_prompt.txt              # System Prompt del AI Agent
-    └── workflow_agente_aduanas.json   # Workflow importable en n8n
+│   ├── 00_master_deploy.sql     # Despliegue en 1 solo paso (DDL + DML + Rol + Vistas + Triggers)
+│   ├── 01_schema.sql            # 14 tablas + restricciones + PK compuestas + recursividad
+│   ├── 02_seed_data.sql         # Poblado DML con 16+ registros por tabla (>= 15)
+│   ├── 03_readonly_role.sql     # Rol de seguridad agente_n8n_readonly (solo SELECT)
+│   ├── 04_consultas_negocio.sql # Las 8 consultas de negocio con JOIN/GROUP BY/ORDER BY
+│   ├── 05_vistas_analiticas.sql # 4 vistas optimizadas para auditoría y agilidad del LLM
+│   └── 06_triggers_auditoria.sql# Trigger de consistencia entre kardex y stock en bodegas
+├── n8n/
+│   ├── system_prompt.txt              # System Prompt del AI Agent (esquema fiel + anclaje 2026)
+│   └── workflow_agente_aduanas.json   # Workflow importable en n8n con bienvenida institucional
+├── DEMO_GUIDE.md                # Guía de defensa oral y demostración en vivo ante el docente
+└── README.md                    # Documentación técnica general
 ```
 
 ---
 
 ## 1. Base de datos
 
-### Ejecución (en este orden, como superusuario o dueño de las tablas)
+### Opción A: Despliegue Rápido (Recomendada)
+Ejecuta el script maestro consolidado que levanta todo en una sola transacción:
 
+```bash
+createdb -U postgres aduana_db
+psql -U postgres -d aduana_db -f sql/00_master_deploy.sql
+```
+
+### Opción B: Ejecución Modular por Archivos
 ```bash
 createdb -U postgres aduana_db
 psql -U postgres -d aduana_db -f sql/01_schema.sql
 psql -U postgres -d aduana_db -f sql/02_seed_data.sql
 psql -U postgres -d aduana_db -f sql/03_readonly_role.sql
+psql -U postgres -d aduana_db -f sql/04_consultas_negocio.sql
 ```
 
 > En pgAdmin: abre el Query Tool sobre `aduana_db` y ejecuta cada archivo en ese orden.
@@ -75,25 +89,27 @@ erDiagram
 
 ---
 
-## 2. Agente de IA en n8n
+## 2. Agente de IA en n8n (Arquitectura Multi-Herramienta)
 
 ### Estructura de nodos
 
 ```mermaid
 flowchart LR
-    A["When chat message received<br/>(Chat Trigger)"] -->|main| B["AI Agent<br/>(Tools Agent)"]
-    C["Google Gemini Chat Model"] -.->|ai_languageModel| B
-    D["Simple Memory"] -.->|ai_memory| B
-    E["consultar_bd_aduana<br/>(Postgres Tool)"] -.->|ai_tool| B
+    A["When chat message received<br/>(Chat Trigger con Bienvenida)"] -->|main| B["AI Agent<br/>(Tools Agent)"]
+    C["Google Gemini Chat Model<br/>(Temp 0.0)"] -.->|ai_languageModel| B
+    D["Simple Memory<br/>(Window: 10)"] -.->|ai_memory| B
+    E["consultar_bd_aduana<br/>(Postgres Tool Dinámica)"] -.->|ai_tool| B
+    F["consultar_alertas_y_riesgos<br/>(Postgres Tool Especializada)"] -.->|ai_tool| B
 ```
 
 | # | Nodo | Tipo n8n | Configuración clave |
 |---|---|---|---|
-| 1 | When chat message received | `@n8n/n8n-nodes-langchain.chatTrigger` | Chat embebido; envía `chatInput` y `sessionId` |
-| 2 | AI Agent | `@n8n/n8n-nodes-langchain.agent` (Tools Agent) | Prompt de origen: *Connected Chat Trigger*. Options → **System Message** = contenido de `system_prompt.txt`. Max Iterations = 6 |
-| 3 | Google Gemini Chat Model | `@n8n/n8n-nodes-langchain.lmChatGoogleGemini` | Modelo `models/gemini-2.5-flash`, Temperature **0.1** (SQL determinista) |
-| 4 | Simple Memory | `@n8n/n8n-nodes-langchain.memoryBufferWindow` | Session ID desde el Chat Trigger, Context Window Length = 10 |
-| 5 | consultar_bd_aduana | `n8n-nodes-base.postgresTool` | Operation **Execute Query**. Query = `{{ $fromAI('sql_query', '...', 'string') }}`. Credencial con usuario de solo lectura |
+| 1 | When chat message received | `@n8n/n8n-nodes-langchain.chatTrigger` | Chat interactivo con mensaje de bienvenida y preguntas sugeridas de inicio |
+| 2 | AI Agent | `@n8n/n8n-nodes-langchain.agent` (Tools Agent) | Prompt: *Connected Chat Trigger*. Max Iterations = 8. System Message fiel y anclado a 2026 |
+| 3 | Google Gemini Chat Model | `@n8n/n8n-nodes-langchain.lmChatGoogleGemini` | Modelo `models/gemini-2.5-flash`, Temperature **0.0** (máxima precisión y determinismo) |
+| 4 | Simple Memory | `@n8n/n8n-nodes-langchain.memoryBufferWindow` | Memoria contextual de los últimos 10 turnos de conversación por usuario |
+| 5 | consultar_bd_aduana | `n8n-nodes-base.postgresTool` | Consultas SQL SELECT dinámicas mediante `{{ $fromAI(...) }}` |
+| 6 | consultar_alertas_y_riesgos | `n8n-nodes-base.postgresTool` | Consulta preconfigurada de alta velocidad sobre la vista `v_alertas_riesgo` |
 
 ### Pasos de integración
 1. En n8n ve a **Workflows → Import from File** y selecciona `n8n/workflow_agente_aduanas.json`.
