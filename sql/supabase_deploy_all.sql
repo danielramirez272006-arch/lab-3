@@ -708,17 +708,9 @@ COMMIT;
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agente_n8n_readonly') THEN
-        CREATE ROLE agente_n8n_readonly
-            WITH LOGIN
-                 PASSWORD 'AduanaReadOnly2026!'
-                 NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION
-                 CONNECTION LIMIT 10;
+        CREATE ROLE agente_n8n_readonly WITH LOGIN PASSWORD 'AduanaReadOnly2026!';
     ELSE
-        ALTER ROLE agente_n8n_readonly
-            WITH LOGIN
-                 PASSWORD 'AduanaReadOnly2026!'
-                 NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION
-                 CONNECTION LIMIT 10;
+        ALTER ROLE agente_n8n_readonly WITH PASSWORD 'AduanaReadOnly2026!';
     END IF;
 END
 $$;
