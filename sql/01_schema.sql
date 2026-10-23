@@ -1,19 +1,19 @@
-﻿-- =============================================================================
+-- =============================================================================
 --  LABORATORIO #3 - SISTEMA DE INVENTARIO ADUANERO
 --  Archivo : 01_schema.sql
---  Motor   : PostgreSQL 13+ (probado con sintaxis estÃ¡ndar de PG 16)
---  PropÃ³sito: Crear las 14 tablas relacionales con todas sus restricciones
+--  Motor   : PostgreSQL 13+ (probado con sintaxis estándar de PG 16)
+--  Propósito: Crear las 14 tablas relacionales con todas sus restricciones
 --             de integridad (PK, FK, UNIQUE, CHECK, DEFAULT).
 --
---  PolÃ­tica de borrado (ON DELETE):
---    * RESTRICT -> CatÃ¡logos / entidades maestras (paÃ­s, importador, agente,
+--  Política de borrado (ON DELETE):
+--    * RESTRICT -> Catálogos / entidades maestras (país, importador, agente,
 --                  partida, producto, funcionario, bodega). No se pueden
 --                  eliminar si existen registros que dependen de ellos.
 --    * CASCADE  -> Entidades "hijas" que no tienen sentido sin su padre
---                  (detalle, liquidaciÃ³n, contenedor, inspecciÃ³n y
+--                  (detalle, liquidación, contenedor, inspección y
 --                  movimientos de inventario).
 --
---  Orden de creaciÃ³n: de tablas independientes a tablas dependientes.
+--  Orden de creación: de tablas independientes a tablas dependientes.
 -- =============================================================================
 
 BEGIN;
@@ -36,7 +36,7 @@ DROP TABLE IF EXISTS pais                   CASCADE;
 
 
 -- -----------------------------------------------------------------------------
--- 1. PAIS : CatÃ¡logo de paÃ­ses (origen / procedencia / domicilio).
+-- 1. PAIS : Catálogo de países (origen / procedencia / domicilio).
 -- -----------------------------------------------------------------------------
 CREATE TABLE pais (
     id_pais        SERIAL        PRIMARY KEY,
@@ -44,11 +44,11 @@ CREATE TABLE pais (
                                  CHECK (codigo_iso ~ '^[A-Z]{2}$'),   -- ISO 3166-1 alfa-2
     nombre         VARCHAR(100)  NOT NULL UNIQUE
 );
-COMMENT ON TABLE pais IS 'CatÃ¡logo de paÃ­ses segÃºn ISO 3166-1.';
+COMMENT ON TABLE pais IS 'Catálogo de países según ISO 3166-1.';
 
 
 -- -----------------------------------------------------------------------------
--- 2. IMPORTADOR : Persona jurÃ­dica/natural que importa mercancÃ­as.
+-- 2. IMPORTADOR : Persona jurídica/natural que importa mercancías.
 -- -----------------------------------------------------------------------------
 CREATE TABLE importador (
     id_importador         SERIAL        PRIMARY KEY,
@@ -88,7 +88,7 @@ COMMENT ON TABLE agente_aduanal IS 'Agentes aduanales con licencia para tramitar
 
 
 -- -----------------------------------------------------------------------------
--- 4. PARTIDA_ARANCELARIA : ClasificaciÃ³n del Sistema Armonizado (SA/SAC).
+-- 4. PARTIDA_ARANCELARIA : Clasificación del Sistema Armonizado (SA/SAC).
 -- -----------------------------------------------------------------------------
 CREATE TABLE partida_arancelaria (
     id_partida     SERIAL         PRIMARY KEY,
@@ -96,7 +96,7 @@ CREATE TABLE partida_arancelaria (
                                   CHECK (codigo_sa ~ '^[0-9]{4}(\.[0-9]{2}){1,3}$'),  -- ej. 8471.30.00
     descripcion    VARCHAR(250)   NOT NULL,
     tasa_dai       NUMERIC(5,2)   NOT NULL DEFAULT 0
-                                  CHECK (tasa_dai BETWEEN 0 AND 100),  -- Derecho Arancelario a la ImportaciÃ³n (%)
+                                  CHECK (tasa_dai BETWEEN 0 AND 100),  -- Derecho Arancelario a la Importación (%)
     tasa_iva       NUMERIC(5,2)   NOT NULL DEFAULT 15
                                   CHECK (tasa_iva BETWEEN 0 AND 100),  -- Impuesto sobre ventas ISV/IVA (%)
     unidad_medida  VARCHAR(20)    NOT NULL DEFAULT 'UNIDAD'
@@ -106,7 +106,7 @@ COMMENT ON TABLE partida_arancelaria IS 'Partidas arancelarias del Sistema Armon
 
 
 -- -----------------------------------------------------------------------------
--- 5. PRODUCTO : MercancÃ­a catalogada y clasificada en una partida.
+-- 5. PRODUCTO : Mercancía catalogada y clasificada en una partida.
 -- -----------------------------------------------------------------------------
 CREATE TABLE producto (
     id_producto         SERIAL         PRIMARY KEY,
@@ -119,7 +119,7 @@ CREATE TABLE producto (
     peso_unitario_kg    NUMERIC(12,3)  NOT NULL CHECK (peso_unitario_kg > 0),
     valor_unitario_usd  NUMERIC(14,2)  NOT NULL CHECK (valor_unitario_usd >= 0)   -- valor de referencia
 );
-COMMENT ON TABLE producto IS 'CatÃ¡logo de productos/mercancÃ­as con partida y paÃ­s de origen.';
+COMMENT ON TABLE producto IS 'Catálogo de productos/mercancías con partida y país de origen.';
 
 
 -- -----------------------------------------------------------------------------
@@ -141,12 +141,12 @@ CREATE TABLE funcionario (
     activo           BOOLEAN       NOT NULL DEFAULT TRUE,
     CONSTRAINT chk_funcionario_no_auto_supervisor CHECK (id_supervisor IS NULL OR id_supervisor <> id_funcionario)
 );
-COMMENT ON TABLE  funcionario               IS 'Funcionarios de aduana con relaciÃ³n recursiva de supervisiÃ³n.';
-COMMENT ON COLUMN funcionario.id_supervisor IS 'RelaciÃ³n recursiva: id del funcionario supervisor a cargo.';
+COMMENT ON TABLE  funcionario               IS 'Funcionarios de aduana con relación recursiva de supervisión.';
+COMMENT ON COLUMN funcionario.id_supervisor IS 'Relación recursiva: id del funcionario supervisor a cargo.';
 
 
 -- -----------------------------------------------------------------------------
--- 7. DECLARACION : DeclaraciÃ³n Ãšnica Aduanera (DUA / DUCA).
+-- 7. DECLARACION : Declaración Única Aduanera (DUA / DUCA).
 -- -----------------------------------------------------------------------------
 CREATE TABLE declaracion (
     id_declaracion          SERIAL         PRIMARY KEY,
@@ -176,11 +176,11 @@ CREATE TABLE declaracion (
     fecha_registro          TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE  declaracion           IS 'Declaraciones aduaneras (DUA/DUCA). Montos en USD.';
-COMMENT ON COLUMN declaracion.estado    IS 'LEVANTE = mercancÃ­a liberada/autorizada para retiro.';
+COMMENT ON COLUMN declaracion.estado    IS 'LEVANTE = mercancía liberada/autorizada para retiro.';
 
 
 -- -----------------------------------------------------------------------------
--- 8. DETALLE_DECLARACION : LÃ­neas de la declaraciÃ³n.
+-- 8. DETALLE_DECLARACION : Líneas de la declaración.
 --    LLAVE PRIMARIA COMPUESTA (id_declaracion, id_producto).
 -- -----------------------------------------------------------------------------
 CREATE TABLE detalle_declaracion (
@@ -194,11 +194,11 @@ CREATE TABLE detalle_declaracion (
     subtotal_fob     NUMERIC(16,2)  GENERATED ALWAYS AS (cantidad * valor_unitario) STORED,
     CONSTRAINT pk_detalle_declaracion PRIMARY KEY (id_declaracion, id_producto)
 );
-COMMENT ON TABLE detalle_declaracion IS 'Detalle de productos por declaraciÃ³n (PK compuesta).';
+COMMENT ON TABLE detalle_declaracion IS 'Detalle de productos por declaración (PK compuesta).';
 
 
 -- -----------------------------------------------------------------------------
--- 9. LIQUIDACION_ARANCEL : CÃ¡lculo de tributos. RELACIÃ“N 1:1 con declaraciÃ³n
+-- 9. LIQUIDACION_ARANCEL : Cálculo de tributos. RELACIÓN 1:1 con declaración
 --    (garantizada por UNIQUE NOT NULL sobre id_declaracion).
 -- -----------------------------------------------------------------------------
 CREATE TABLE liquidacion_arancel (
@@ -220,11 +220,11 @@ CREATE TABLE liquidacion_arancel (
     CONSTRAINT chk_liq_pago_fecha    CHECK (estado_pago <> 'PAGADO' OR fecha_pago IS NOT NULL),
     CONSTRAINT chk_liq_pago_orden    CHECK (fecha_pago IS NULL OR fecha_pago >= fecha_liquidacion)
 );
-COMMENT ON TABLE liquidacion_arancel IS 'LiquidaciÃ³n de tributos (DAI, IVA/ISV). RelaciÃ³n 1:1 con declaracion.';
+COMMENT ON TABLE liquidacion_arancel IS 'Liquidación de tributos (DAI, IVA/ISV). Relación 1:1 con declaracion.';
 
 
 -- -----------------------------------------------------------------------------
--- 10. CONTENEDOR : Unidades de carga asociadas a una declaraciÃ³n.
+-- 10. CONTENEDOR : Unidades de carga asociadas a una declaración.
 -- -----------------------------------------------------------------------------
 CREATE TABLE contenedor (
     id_contenedor      SERIAL         PRIMARY KEY,
@@ -241,10 +241,118 @@ CREATE TABLE contenedor (
                                                         'INSPECCIONADO', 'LIBERADO', 'RETENIDO')),
     fecha_arribo       DATE
 );
-COMMENT ON TABLE contenedor IS 'Contenedores/unidades de transporte de cada declaraciÃ³n.';
+COMMENT ON TABLE contenedor IS 'Contenedores/unidades de transporte de cada declaración.';
 
 
 -- -----------------------------------------------------------------------------
+-- 11. BODEGA : Almacenes fiscales / depósitos temporales.
+-- -----------------------------------------------------------------------------
+CREATE TABLE bodega (
+    id_bodega                   SERIAL         PRIMARY KEY,
+    codigo                      VARCHAR(15)    NOT NULL UNIQUE,
+    nombre                      VARCHAR(120)   NOT NULL,
+    ubicacion                   VARCHAR(150)   NOT NULL,
+    tipo                        VARCHAR(20)    NOT NULL
+                                               CHECK (tipo IN ('FISCAL', 'DEPOSITO_TEMPORAL', 'ZONA_LIBRE', 'REFRIGERADA')),
+    capacidad_m3                NUMERIC(12,2)  NOT NULL CHECK (capacidad_m3 > 0),
+    id_funcionario_responsable  INTEGER        NOT NULL
+                                               REFERENCES funcionario (id_funcionario) ON DELETE RESTRICT,
+    activa                      BOOLEAN        NOT NULL DEFAULT TRUE
+);
+COMMENT ON TABLE bodega IS 'Bodegas/almacenes bajo control aduanero.';
+
+
+-- -----------------------------------------------------------------------------
+-- 12. INVENTARIO_BODEGA : Existencias de un producto, de una declaración,
+--     en una bodega concreta.
+-- -----------------------------------------------------------------------------
+CREATE TABLE inventario_bodega (
+    id_inventario               SERIAL         UNIQUE,
+    id_bodega                   INTEGER        NOT NULL
+                                               REFERENCES bodega (id_bodega) ON DELETE RESTRICT,
+    id_producto                 INTEGER        NOT NULL
+                                               REFERENCES producto (id_producto) ON DELETE RESTRICT,
+    id_declaracion              INTEGER        NOT NULL
+                                               REFERENCES declaracion (id_declaracion) ON DELETE RESTRICT,
+    cantidad_actual             NUMERIC(14,3)  NOT NULL DEFAULT 0 CHECK (cantidad_actual >= 0),
+    ubicacion_rack              VARCHAR(20),
+    fecha_ingreso               DATE           NOT NULL DEFAULT CURRENT_DATE,
+    fecha_ultima_actualizacion  TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_inventario_bodega PRIMARY KEY (id_bodega, id_producto, id_declaracion)
+);
+COMMENT ON TABLE inventario_bodega IS 'Existencias por bodega, producto y declaración (tabla intermedia N:M con PK compuesta).';
+
+
+-- -----------------------------------------------------------------------------
+-- 13. MOVIMIENTO_INVENTARIO : Kardex de entradas/salidas/traslados/ajustes.
+-- -----------------------------------------------------------------------------
+CREATE TABLE movimiento_inventario (
+    id_movimiento      SERIAL         PRIMARY KEY,
+    id_inventario      INTEGER        NOT NULL
+                                      REFERENCES inventario_bodega (id_inventario) ON DELETE CASCADE,
+    tipo_movimiento    VARCHAR(10)    NOT NULL
+                                      CHECK (tipo_movimiento IN ('INGRESO', 'SALIDA', 'TRASLADO', 'AJUSTE')),
+    cantidad           NUMERIC(14,3)  NOT NULL CHECK (cantidad > 0),
+    fecha_movimiento   TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id_funcionario     INTEGER        NOT NULL
+                                      REFERENCES funcionario (id_funcionario) ON DELETE RESTRICT,
+    id_bodega_destino  INTEGER
+                                      REFERENCES bodega (id_bodega) ON DELETE RESTRICT,
+    observacion        VARCHAR(250),
+    -- Un TRASLADO siempre debe indicar la bodega destino; los demás no.
+    CONSTRAINT chk_mov_traslado CHECK (
+        (tipo_movimiento =  'TRASLADO' AND id_bodega_destino IS NOT NULL) OR
+        (tipo_movimiento <> 'TRASLADO' AND id_bodega_destino IS NULL)
+    )
+);
+COMMENT ON TABLE movimiento_inventario IS 'Kardex: historial de movimientos de inventario.';
+
+
+-- -----------------------------------------------------------------------------
+-- 14. INSPECCION : Revisión documental / física / no intrusiva (rayos X).
+-- -----------------------------------------------------------------------------
+CREATE TABLE inspeccion (
+    id_inspeccion     SERIAL        PRIMARY KEY,
+    id_declaracion    INTEGER       NOT NULL
+                                    REFERENCES declaracion (id_declaracion) ON DELETE CASCADE,
+    id_contenedor     INTEGER
+                                    REFERENCES contenedor (id_contenedor) ON DELETE CASCADE,
+    id_funcionario    INTEGER       NOT NULL
+                                    REFERENCES funcionario (id_funcionario) ON DELETE RESTRICT,
+    fecha_inspeccion  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    canal             VARCHAR(10)   NOT NULL
+                                    CHECK (canal IN ('VERDE', 'AMARILLO', 'ROJO')),   -- canal de selectividad
+    tipo              VARCHAR(15)   NOT NULL
+                                    CHECK (tipo IN ('DOCUMENTAL', 'FISICA', 'NO_INTRUSIVA')),
+    resultado         VARCHAR(20)   NOT NULL DEFAULT 'PENDIENTE'
+                                    CHECK (resultado IN ('PENDIENTE', 'CONFORME', 'CON_OBSERVACIONES', 'NO_CONFORME')),
+    observaciones     TEXT
+);
+COMMENT ON TABLE inspeccion IS 'Inspecciones aduaneras por canal de selectividad.';
+
+
+-- -----------------------------------------------------------------------------
+-- ÍNDICES sobre llaves foráneas y columnas de filtrado frecuente
+-- (PostgreSQL NO crea índices automáticamente para las FK).
+-- -----------------------------------------------------------------------------
+CREATE INDEX idx_importador_pais         ON importador            (id_pais);
+CREATE INDEX idx_producto_partida        ON producto              (id_partida);
+CREATE INDEX idx_producto_pais           ON producto              (id_pais_origen);
+CREATE INDEX idx_declaracion_importador  ON declaracion           (id_importador);
+CREATE INDEX idx_declaracion_agente      ON declaracion           (id_agente);
+CREATE INDEX idx_declaracion_estado      ON declaracion           (estado);
+CREATE INDEX idx_declaracion_fecha       ON declaracion           (fecha_declaracion);
+CREATE INDEX idx_detalle_producto        ON detalle_declaracion   (id_producto);
+CREATE INDEX idx_liquidacion_func        ON liquidacion_arancel   (id_funcionario_liquidador);
+CREATE INDEX idx_contenedor_declaracion  ON contenedor            (id_declaracion);
+CREATE INDEX idx_bodega_responsable      ON bodega                (id_funcionario_responsable);
+CREATE INDEX idx_inventario_producto     ON inventario_bodega     (id_producto);
+CREATE INDEX idx_inventario_declaracion  ON inventario_bodega     (id_declaracion);
+CREATE INDEX idx_movimiento_inventario   ON movimiento_inventario (id_inventario);
+CREATE INDEX idx_movimiento_funcionario  ON movimiento_inventario (id_funcionario);
+CREATE INDEX idx_inspeccion_declaracion  ON inspeccion            (id_declaracion);
+CREATE INDEX idx_inspeccion_contenedor   ON inspeccion            (id_contenedor);
+CREATE INDEX idx_inspeccion_funcionario  ON inspeccion            (id_funcionario);
+CREATE INDEX idx_funcionario_supervisor   ON funcionario           (id_supervisor);
 
 COMMIT;
-
