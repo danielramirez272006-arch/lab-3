@@ -1,0 +1,292 @@
+// =============================================================================
+//  LABORATORIO #3 - SISTEMA DE INVENTARIO ADUANERO
+//  Código DBML para dbdiagram.io (Actualizado con todas las mejoras)
+//  Incluye: 14 tablas, PK compuestas, relación 1:1, relación recursiva,
+//           restricciones, notas explicativas y TableGroups modulares.
+// =============================================================================
+
+Project Sistema_Inventario_Aduanero {
+  database_type: 'PostgreSQL'
+  Note: '''
+    # Sistema de Control e Inventario Aduanero
+    Modelo relacional para la gestión y fiscalización de declaraciones (DUA/DUCA),
+    liquidación arancelaria, existencias en almacenes fiscales, inspecciones y kardex.
+  '''
+}
+
+// -----------------------------------------------------------------------------
+// 1. MÓDULO: CATÁLOGOS Y ACTORES
+// -----------------------------------------------------------------------------
+
+Table pais {
+  id_pais integer [pk, increment]
+  codigo_iso char(2) [not null, unique, note: 'Código ISO 3166-1 alfa-2 (ej. HN, US, CN)']
+  nombre varchar(100) [not null, unique]
+
+  Note: 'Catálogo de países para origen, procedencia y domicilio.'
+}
+
+Table importador {
+  id_importador integer [pk, increment]
+  identificacion_fiscal varchar(20) [not null, unique, note: 'RTN / NIT / RFC']
+  razon_social varchar(150) [not null]
+  direccion varchar(250)
+  telefono varchar(20)
+  email varchar(120) [unique]
+  id_pais integer [not null]
+  estado varchar(15) [not null, default: 'ACTIVO', note: 'ACTIVO, INACTIVO, SUSPENDIDO']
+  fecha_registro date [not null, default: `CURRENT_DATE`]
+
+  Note: 'Empresas y personas registradas para importar mercancías.'
+}
+
+Table agente_aduanal {
+  id_agente integer [pk, increment]
+  numero_licencia varchar(20) [not null, unique, note: 'Licencia autorizada por la aduana']
+  nombre varchar(80) [not null]
+  apellido varchar(80) [not null]
+  email varchar(120) [unique]
+  telefono varchar(20)
+  fecha_emision_licencia date [not null]
+  fecha_vencimiento_licencia date [not null]
+  estado varchar(15) [not null, default: 'ACTIVO', note: 'ACTIVO, INACTIVO, SUSPENDIDO']
+
+  Note: 'Profesionales autorizados para tramitar declaraciones aduaneras.'
+}
+
+Table funcionario {
+  id_funcionario integer [pk, increment]
+  codigo_empleado varchar(15) [not null, unique]
+  nombre varchar(80) [not null]
+  apellido varchar(80) [not null]
+  cargo varchar(20) [not null, note: 'INSPECTOR, LIQUIDADOR, SUPERVISOR, JEFE_BODEGA, ADMINISTRADOR']
+  email varchar(120) [not null, unique]
+  id_supervisor integer [null, note: 'Relación recursiva: id del supervisor jerárquico directo']
+  fecha_ingreso date [not null, default: `CURRENT_DATE`]
+  activo boolean [not null, default: true]
+
+  Note: 'Personal de la aduana con relación recursiva de supervisión jerárquica.'
+}
+
+Table partida_arancelaria {
+  id_partida integer [pk, increment]
+  codigo_sa varchar(12) [not null, unique, note: 'Código Sistema Armonizado (ej. 8471.30.00)']
+  descripcion varchar(250) [not null]
+  tasa_dai numeric(5,2) [not null, default: 0, note: 'Tasa DAI % (0 a 100)']
+  tasa_iva numeric(5,2) [not null, default: 15, note: 'Tasa IVA/ISV % (0 a 100)']
+  unidad_medida varchar(20) [not null, default: 'UNIDAD', note: 'UNIDAD, KG, LITRO, METRO, PAR, DOCENA, CAJA']
+
+  Note: 'Clasificación arancelaria del Sistema Arancelario Centroamericano (SAC).'
+}
+
+Table producto {
+  id_producto integer [pk, increment]
+  codigo varchar(20) [not null, unique]
+  descripcion varchar(250) [not null]
+  id_partida integer [not null]
+  id_pais_origen integer [not null]
+  peso_unitario_kg numeric(12,3) [not null, note: 'Mayor a 0']
+  valor_unitario_usd numeric(14,2) [not null, note: 'Precio FOB de referencia']
+
+  Note: 'Catálogo de mercancías clasificadas arancelariamente.'
+}
+
+// -----------------------------------------------------------------------------
+// 2. MÓDULO: DECLARACIONES Y FISCALIZACIÓN TRIBUTARIA
+// -----------------------------------------------------------------------------
+
+Table declaracion {
+  id_declaracion integer [pk, increment]
+  numero_declaracion varchar(20) [not null, unique, note: 'Número oficial de DUA / DUCA']
+  fecha_declaracion date [not null, default: `CURRENT_DATE`]
+  id_importador integer [not null]
+  id_agente integer [not null]
+  id_pais_procedencia integer [not null]
+  id_funcionario_revisor integer [null]
+  regimen varchar(25) [not null, default: 'IMPORTACION_DEFINITIVA', note: 'IMPORTACION_DEFINITIVA, IMPORTACION_TEMPORAL, EXPORTACION, TRANSITO, DEPOSITO']
+  tipo_transporte varchar(10) [not null, note: 'MARITIMO, AEREO, TERRESTRE']
+  valor_fob numeric(14,2) [not null, default: 0]
+  valor_flete numeric(14,2) [not null, default: 0]
+  valor_seguro numeric(14,2) [not null, default: 0]
+  valor_cif numeric(14,2) [note: 'Calculado = FOB + Flete + Seguro']
+  estado varchar(15) [not null, default: 'REGISTRADA', note: 'REGISTRADA, EN_REVISION, INSPECCION, LIQUIDADA, LEVANTE, RECHAZADA, ANULADA']
+  fecha_registro timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  Note: 'Declaración Única Aduanera (DUA) con montos en USD.'
+}
+
+Table detalle_declaracion {
+  id_declaracion integer [not null]
+  id_producto integer [not null]
+  cantidad numeric(14,3) [not null, note: 'Mayor a 0']
+  valor_unitario numeric(14,2) [not null, note: 'FOB declarado']
+  peso_bruto_kg numeric(14,3) [not null, note: 'Mayor a 0']
+  subtotal_fob numeric(16,2) [note: 'Calculado = cantidad * valor_unitario']
+
+  indexes {
+    (id_declaracion, id_producto) [pk]
+  }
+
+  Note: 'Líneas de la declaración. Tabla intermedia N:M con PK compuesta.'
+}
+
+Table liquidacion_arancel {
+  id_liquidacion integer [pk, increment]
+  numero_liquidacion varchar(20) [not null, unique]
+  id_declaracion integer [not null, unique, note: 'Relación 1:1 estricta con declaracion']
+  id_funcionario_liquidador integer [not null]
+  fecha_liquidacion date [not null, default: `CURRENT_DATE`]
+  base_imponible numeric(14,2) [not null, note: 'Base imponible (normalmente valor CIF)']
+  monto_dai numeric(14,2) [not null, default: 0]
+  monto_iva numeric(14,2) [not null, default: 0]
+  monto_otros numeric(14,2) [not null, default: 0]
+  total_pagar numeric(14,2) [note: 'Calculado = DAI + IVA + Otros']
+  estado_pago varchar(10) [not null, default: 'PENDIENTE', note: 'PENDIENTE, PAGADO, EXONERADO, ANULADO']
+  fecha_pago date [null]
+
+  Note: 'Liquidación oficial de tributos. Relación 1:1 con la declaración.'
+}
+
+Table contenedor {
+  id_contenedor integer [pk, increment]
+  numero_contenedor varchar(11) [not null, unique, note: 'Formato ISO 6346 (ej. MSCU1234565)']
+  id_declaracion integer [not null]
+  tipo varchar(6) [not null, default: '40GP', note: '20GP, 40GP, 40HC, 20RF, 40RF, OTRO']
+  peso_bruto_kg numeric(12,2) [not null]
+  numero_marchamo varchar(20) [unique, note: 'Sello / precinto de seguridad']
+  estado varchar(15) [not null, default: 'EN_PUERTO', note: 'EN_TRANSITO, EN_PUERTO, EN_BODEGA, INSPECCIONADO, LIBERADO, RETENIDO']
+  fecha_arribo date [null]
+
+  Note: 'Unidades de transporte y carga asociadas a las declaraciones.'
+}
+
+// -----------------------------------------------------------------------------
+// 3. MÓDULO: ALMACENES, EXISTENCIAS Y KARDEX
+// -----------------------------------------------------------------------------
+
+Table bodega {
+  id_bodega integer [pk, increment]
+  codigo varchar(15) [not null, unique]
+  nombre varchar(120) [not null]
+  ubicacion varchar(150) [not null]
+  tipo varchar(20) [not null, note: 'FISCAL, DEPOSITO_TEMPORAL, ZONA_LIBRE, REFRIGERADA']
+  capacidad_m3 numeric(12,2) [not null]
+  id_funcionario_responsable integer [not null]
+  activa boolean [not null, default: true]
+
+  Note: 'Almacenes fiscales y depósitos aduaneros autorizados.'
+}
+
+Table inventario_bodega {
+  id_inventario integer [unique, increment, note: 'Surrogate key para kardex']
+  id_bodega integer [not null]
+  id_producto integer [not null]
+  id_declaracion integer [not null]
+  cantidad_actual numeric(14,3) [not null, default: 0, note: 'Existencia activa >= 0']
+  ubicacion_rack varchar(20)
+  fecha_ingreso date [not null, default: `CURRENT_DATE`]
+  fecha_ultima_actualizacion timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (id_bodega, id_producto, id_declaracion) [pk]
+  }
+
+  Note: 'Stock en bodega por lote/declaración. Tabla intermedia N:M con PK compuesta.'
+}
+
+Table movimiento_inventario {
+  id_movimiento integer [pk, increment]
+  id_inventario integer [not null]
+  tipo_movimiento varchar(10) [not null, note: 'INGRESO, SALIDA, TRASLADO, AJUSTE']
+  cantidad numeric(14,3) [not null, note: 'Mayor a 0']
+  fecha_movimiento timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  id_funcionario integer [not null]
+  id_bodega_destino integer [null, note: 'Obligatorio en TRASLADO, NULL en los demás']
+  observacion varchar(250)
+
+  Note: 'Kardex aduanero: registro cronológico e inmutable de movimientos.'
+}
+
+Table inspeccion {
+  id_inspeccion integer [pk, increment]
+  id_declaracion integer [not null]
+  id_contenedor integer [null]
+  id_funcionario integer [not null]
+  fecha_inspeccion timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  canal varchar(10) [not null, note: 'VERDE (levante), AMARILLO (documental), ROJO (física/rayos X)']
+  tipo varchar(15) [not null, note: 'DOCUMENTAL, FISICA, NO_INTRUSIVA']
+  resultado varchar(20) [not null, default: 'PENDIENTE', note: 'PENDIENTE, CONFORME, CON_OBSERVACIONES, NO_CONFORME']
+  observaciones text
+
+  Note: 'Inspecciones aduaneras según canal de selectividad y gestión de riesgo.'
+}
+
+// -----------------------------------------------------------------------------
+// RELACIONES (FOREIGN KEYS)
+// -----------------------------------------------------------------------------
+
+// Catálogos y actores
+Ref: pais.id_pais < importador.id_pais [delete: restrict]
+Ref: pais.id_pais < producto.id_pais_origen [delete: restrict]
+Ref: pais.id_pais < declaracion.id_pais_procedencia [delete: restrict]
+Ref: partida_arancelaria.id_partida < producto.id_partida [delete: restrict]
+Ref: funcionario.id_funcionario < funcionario.id_supervisor [delete: set null, note: 'Relación recursiva de supervisión']
+
+// Declaraciones
+Ref: importador.id_importador < declaracion.id_importador [delete: restrict]
+Ref: agente_aduanal.id_agente < declaracion.id_agente [delete: restrict]
+Ref: funcionario.id_funcionario < declaracion.id_funcionario_revisor [delete: restrict]
+
+// Detalle de declaración (N:M)
+Ref: declaracion.id_declaracion < detalle_declaracion.id_declaracion [delete: cascade]
+Ref: producto.id_producto < detalle_declaracion.id_producto [delete: restrict]
+
+// Liquidación 1:1
+Ref: declaracion.id_declaracion - liquidacion_arancel.id_declaracion [delete: cascade, note: 'Relación 1:1 estricta']
+Ref: funcionario.id_funcionario < liquidacion_arancel.id_funcionario_liquidador [delete: restrict]
+
+// Contenedores
+Ref: declaracion.id_declaracion < contenedor.id_declaracion [delete: cascade]
+
+// Bodegas e Inventario (N:M)
+Ref: funcionario.id_funcionario < bodega.id_funcionario_responsable [delete: restrict]
+Ref: bodega.id_bodega < inventario_bodega.id_bodega [delete: restrict]
+Ref: producto.id_producto < inventario_bodega.id_producto [delete: restrict]
+Ref: declaracion.id_declaracion < inventario_bodega.id_declaracion [delete: restrict]
+
+// Kardex
+Ref: inventario_bodega.id_inventario < movimiento_inventario.id_inventario [delete: cascade]
+Ref: funcionario.id_funcionario < movimiento_inventario.id_funcionario [delete: restrict]
+Ref: bodega.id_bodega < movimiento_inventario.id_bodega_destino [delete: restrict]
+
+// Inspecciones
+Ref: declaracion.id_declaracion < inspeccion.id_declaracion [delete: cascade]
+Ref: contenedor.id_contenedor < inspeccion.id_contenedor [delete: cascade]
+Ref: funcionario.id_funcionario < inspeccion.id_funcionario [delete: restrict]
+
+// -----------------------------------------------------------------------------
+// AGRUPACIONES MODULARES (TableGroups para dbdiagram.io)
+// -----------------------------------------------------------------------------
+
+TableGroup Catalogos_y_Actores {
+  pais
+  importador
+  agente_aduanal
+  funcionario
+  partida_arancelaria
+  producto
+}
+
+TableGroup Gestion_Declaraciones_y_Tributos {
+  declaracion
+  detalle_declaracion
+  liquidacion_arancel
+  contenedor
+}
+
+TableGroup Almacenamiento_Kardex_y_Control {
+  bodega
+  inventario_bodega
+  movimiento_inventario
+  inspeccion
+}
