@@ -146,6 +146,105 @@ COMMENT ON COLUMN funcionario.id_supervisor IS 'RelaciÃ³n recursiva: id del fu
 
 
 -- -----------------------------------------------------------------------------
+-- 7. DECLARACION : DeclaraciÃ³n Ãšnica Aduanera (DUA / DUCA).
+-- -----------------------------------------------------------------------------
+CREATE TABLE declaracion (
+    id_declaracion          SERIAL         PRIMARY KEY,
+    numero_declaracion      VARCHAR(20)    NOT NULL UNIQUE,
+    fecha_declaracion       DATE           NOT NULL DEFAULT CURRENT_DATE,
+    id_importador           INTEGER        NOT NULL
+                                           REFERENCES importador (id_importador) ON DELETE RESTRICT,
+    id_agente               INTEGER        NOT NULL
+                                           REFERENCES agente_aduanal (id_agente) ON DELETE RESTRICT,
+    id_pais_procedencia     INTEGER        NOT NULL
+                                           REFERENCES pais (id_pais) ON DELETE RESTRICT,
+    id_funcionario_revisor  INTEGER
+                                           REFERENCES funcionario (id_funcionario) ON DELETE RESTRICT,
+    regimen                 VARCHAR(25)    NOT NULL DEFAULT 'IMPORTACION_DEFINITIVA'
+                                           CHECK (regimen IN ('IMPORTACION_DEFINITIVA', 'IMPORTACION_TEMPORAL',
+                                                              'EXPORTACION', 'TRANSITO', 'DEPOSITO')),
+    tipo_transporte         VARCHAR(10)    NOT NULL
+                                           CHECK (tipo_transporte IN ('MARITIMO', 'AEREO', 'TERRESTRE')),
+    valor_fob               NUMERIC(14,2)  NOT NULL DEFAULT 0 CHECK (valor_fob    >= 0),
+    valor_flete             NUMERIC(14,2)  NOT NULL DEFAULT 0 CHECK (valor_flete  >= 0),
+    valor_seguro            NUMERIC(14,2)  NOT NULL DEFAULT 0 CHECK (valor_seguro >= 0),
+    -- CIF = FOB + Flete + Seguro (columna calculada, siempre consistente)
+    valor_cif               NUMERIC(14,2)  GENERATED ALWAYS AS (valor_fob + valor_flete + valor_seguro) STORED,
+    estado                  VARCHAR(15)    NOT NULL DEFAULT 'REGISTRADA'
+                                           CHECK (estado IN ('REGISTRADA', 'EN_REVISION', 'INSPECCION',
+                                                             'LIQUIDADA', 'LEVANTE', 'RECHAZADA', 'ANULADA')),
+    fecha_registro          TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE  declaracion           IS 'Declaraciones aduaneras (DUA/DUCA). Montos en USD.';
+COMMENT ON COLUMN declaracion.estado    IS 'LEVANTE = mercancÃ­a liberada/autorizada para retiro.';
+
+
+-- -----------------------------------------------------------------------------
+-- 8. DETALLE_DECLARACION : LÃ­neas de la declaraciÃ³n.
+--    LLAVE PRIMARIA COMPUESTA (id_declaracion, id_producto).
+-- -----------------------------------------------------------------------------
+CREATE TABLE detalle_declaracion (
+    id_declaracion   INTEGER        NOT NULL
+                                    REFERENCES declaracion (id_declaracion) ON DELETE CASCADE,
+    id_producto      INTEGER        NOT NULL
+                                    REFERENCES producto (id_producto) ON DELETE RESTRICT,
+    cantidad         NUMERIC(14,3)  NOT NULL CHECK (cantidad > 0),
+    valor_unitario   NUMERIC(14,2)  NOT NULL CHECK (valor_unitario >= 0),   -- valor FOB declarado (USD)
+    peso_bruto_kg    NUMERIC(14,3)  NOT NULL CHECK (peso_bruto_kg > 0),
+    subtotal_fob     NUMERIC(16,2)  GENERATED ALWAYS AS (cantidad * valor_unitario) STORED,
+    CONSTRAINT pk_detalle_declaracion PRIMARY KEY (id_declaracion, id_producto)
+);
+COMMENT ON TABLE detalle_declaracion IS 'Detalle de productos por declaraciÃ³n (PK compuesta).';
+
+
+-- -----------------------------------------------------------------------------
+-- 9. LIQUIDACION_ARANCEL : CÃ¡lculo de tributos. RELACIÃ“N 1:1 con declaraciÃ³n
+--    (garantizada por UNIQUE NOT NULL sobre id_declaracion).
+-- -----------------------------------------------------------------------------
+CREATE TABLE liquidacion_arancel (
+    id_liquidacion             SERIAL         PRIMARY KEY,
+    numero_liquidacion         VARCHAR(20)    NOT NULL UNIQUE,
+    id_declaracion             INTEGER        NOT NULL UNIQUE                -- <- 1:1
+                                              REFERENCES declaracion (id_declaracion) ON DELETE CASCADE,
+    id_funcionario_liquidador  INTEGER        NOT NULL
+                                              REFERENCES funcionario (id_funcionario) ON DELETE RESTRICT,
+    fecha_liquidacion          DATE           NOT NULL DEFAULT CURRENT_DATE,
+    base_imponible             NUMERIC(14,2)  NOT NULL CHECK (base_imponible >= 0),  -- normalmente = CIF
+    monto_dai                  NUMERIC(14,2)  NOT NULL DEFAULT 0 CHECK (monto_dai   >= 0),
+    monto_iva                  NUMERIC(14,2)  NOT NULL DEFAULT 0 CHECK (monto_iva   >= 0),
+    monto_otros                NUMERIC(14,2)  NOT NULL DEFAULT 0 CHECK (monto_otros >= 0),
+    total_pagar                NUMERIC(14,2)  GENERATED ALWAYS AS (monto_dai + monto_iva + monto_otros) STORED,
+    estado_pago                VARCHAR(10)    NOT NULL DEFAULT 'PENDIENTE'
+                                              CHECK (estado_pago IN ('PENDIENTE', 'PAGADO', 'EXONERADO', 'ANULADO')),
+    fecha_pago                 DATE,
+    CONSTRAINT chk_liq_pago_fecha    CHECK (estado_pago <> 'PAGADO' OR fecha_pago IS NOT NULL),
+    CONSTRAINT chk_liq_pago_orden    CHECK (fecha_pago IS NULL OR fecha_pago >= fecha_liquidacion)
+);
+COMMENT ON TABLE liquidacion_arancel IS 'LiquidaciÃ³n de tributos (DAI, IVA/ISV). RelaciÃ³n 1:1 con declaracion.';
+
+
+-- -----------------------------------------------------------------------------
+-- 10. CONTENEDOR : Unidades de carga asociadas a una declaraciÃ³n.
+-- -----------------------------------------------------------------------------
+CREATE TABLE contenedor (
+    id_contenedor      SERIAL         PRIMARY KEY,
+    numero_contenedor  VARCHAR(11)    NOT NULL UNIQUE
+                                      CHECK (numero_contenedor ~ '^[A-Z]{4}[0-9]{7}$'),   -- formato ISO 6346
+    id_declaracion     INTEGER        NOT NULL
+                                      REFERENCES declaracion (id_declaracion) ON DELETE CASCADE,
+    tipo               VARCHAR(6)     NOT NULL DEFAULT '40GP'
+                                      CHECK (tipo IN ('20GP', '40GP', '40HC', '20RF', '40RF', 'OTRO')),
+    peso_bruto_kg      NUMERIC(12,2)  NOT NULL CHECK (peso_bruto_kg > 0),
+    numero_marchamo    VARCHAR(20)    UNIQUE,                                           -- sello/precinto
+    estado             VARCHAR(15)    NOT NULL DEFAULT 'EN_PUERTO'
+                                      CHECK (estado IN ('EN_TRANSITO', 'EN_PUERTO', 'EN_BODEGA',
+                                                        'INSPECCIONADO', 'LIBERADO', 'RETENIDO')),
+    fecha_arribo       DATE
+);
+COMMENT ON TABLE contenedor IS 'Contenedores/unidades de transporte de cada declaraciÃ³n.';
+
+
+-- -----------------------------------------------------------------------------
 
 COMMIT;
 
